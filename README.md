@@ -1,5 +1,11 @@
 # Underfoot
 
+> **Fork of [TechHQUSA/underfoot](https://github.com/TechHQUSA/underfoot), modified by Sebiann (November 2026):** adds Sportstech WalkMate support and uses a separate application ID. Not affiliated with the original project. Licensed GPL-3.0-or-later; source for every release is the tagged commit in this repo.
+>
+> - Application ID `moe.sebiann.underfoot`, app name "Underfoot (WalkMate)", so it installs next to the official app (it does not update it, and walks are not shared between the two). Get its APK from [this fork's releases](https://github.com/Sebiann/underfoot/releases).
+> - Connects to pads advertising as `URTM…` or `WALKMATE…` (e.g. `WALKMATE-624`). A pad that does not send UREVO fff1 frames is tracked from standard FTMS Treadmill Data alone; FTMS has no step count, so steps are estimated from distance and your height.
+> - The Install section below, `fdroid/` and `fastlane/` describe the upstream app (`org.underfoot`), not this fork.
+
 Open-source Android app for UREVO walking pads. It records your walks over Bluetooth LE, saves them to Health Connect, and lets you start, pause, resume and stop the belt. No account, no analytics.
 
 Status: version 0.1, tested on a UREVO `URTM059` (the "2D Pro").
@@ -33,7 +39,7 @@ No network permission, no analytics, no ads. Your data stays on the phone, exclu
 The app writes to the pad only when you tap a button, apart from the Bluetooth handshake that makes the pad start sending data.
 
 ## Supported devices
-UREVO URTM059 only. Other pads in the same family may work; they are untested. See `PROTOCOL.md` for what was measured, and `CONTRIBUTING.md` for how to add a model.
+UREVO URTM059 (tested upstream). This fork also connects to the Sportstech WalkMate (`WALKMATE-…`), using FTMS data with estimated steps. Other pads in the same family may work; they are untested. See `PROTOCOL.md` for what was measured, and `CONTRIBUTING.md` for how to add a model.
 
 ## Build
 See `CONTRIBUTING.md`. JDK 17 or newer (21 works) and the Android SDK (platform 36). License: GPL-3.0-or-later.

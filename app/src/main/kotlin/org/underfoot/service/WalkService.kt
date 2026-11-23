@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 TechHQ
+// Copyright (C) 2026 Sebiann
 
 package org.underfoot.service
 
@@ -52,15 +53,23 @@ import org.underfoot.protocol.CommandGate
 import org.underfoot.protocol.FtmsControl
 import org.underfoot.protocol.PadCommand
 import org.underfoot.protocol.Estimators
+import org.underfoot.protocol.FtmsOnly
 import org.underfoot.protocol.Profile
 import org.underfoot.protocol.SessionSummary
 import org.underfoot.protocol.SessionTracker
 import org.underfoot.protocol.SleepGate
 import org.underfoot.protocol.SpeedTarget
+import org.underfoot.protocol.Telemetry
 import org.underfoot.protocol.TelemetryMerger
 import org.underfoot.protocol.UrevoDriver
 import java.io.File
 import java.util.UUID
+
+/** Advertised-name prefixes of pads we connect to (the scan itself already requires FTMS 0x1826). */
+private val SUPPORTED_PREFIXES = listOf("URTM", "WALKMATE")
+
+/** FTMS frames seen on a connection without one decodable fff1 frame before the walk is tracked from FTMS alone. */
+private const val FTMS_ONLY_AFTER = 3
 
 @SuppressLint("MissingPermission") // btGranted() is checked in onStartCommand before any BLE call
 class WalkService : Service() {
@@ -138,6 +147,9 @@ class WalkService : Service() {
     private var scanning = false
     private var connecting = false
     private var pendingAddress: String? = null     // saved as the paired pad only after the GATT services validate
+    private var pendingName: String? = null
+    private var fff1Decoded = false                // this connection has sent a UREVO fff1 frame: fff1 drives the walk
+    private var ftmsSinceConnect = 0               // FTMS frames on this connection; with no fff1 frame, FTMS alone drives the walk
     private var scanRetries = 0
     private var destroyed = false                  // stale posts from the old BLE manager must not revive a stopped service
     private var tickCount = 0
@@ -226,7 +238,7 @@ class WalkService : Service() {
     private fun handleScanResult(result: ScanResult) {
         if (destroyed || connecting) return
         val name = result.scanRecord?.deviceName ?: result.device.name
-        if (name?.startsWith("URTM") == true) { stopScan(); connect(result.device) }
+        if (name != null && SUPPORTED_PREFIXES.any { name.startsWith(it, ignoreCase = true) }) { stopScan(); pendingName = name; connect(result.device) }
     }
 
     /** Bounded retry: five attempts 10 s apart, then a visible SCAN_FAILED state until auto-record is toggled. */
@@ -275,7 +287,7 @@ class WalkService : Service() {
         return PadManager(this,
             { b -> current { handleFff1(b) } }, { b -> current { handleFtms(b) } }, { c -> current { handleConnection(c) } },
             { b -> current { handleControlReply(b) } },
-            { label, b -> current { if (prefs.rawLog) log.append(label, b) } })
+            { label, b -> current { handleExtra(label, b) } })
     }
 
     /**
@@ -351,7 +363,15 @@ class WalkService : Service() {
         if (destroyed) return
         last = last.copy(fff1Frames = last.fff1Frames + 1, lastFff1Len = bytes.size)
         if (prefs.rawLog) log.append("fff1", bytes)
-        val t = merger.merge(UrevoDriver.decodeFff1(bytes) ?: return)
+        val t = merger.merge(UrevoDriver.decodeFff1(bytes) ?: return)   // unknown frames (other pads' fff1 formats) are dropped here
+        fff1Decoded = true
+        applyTelemetry(t)
+    }
+
+    /** True once this connection has shown it does not speak UREVO fff1: the walk is then tracked from FTMS (steps estimated). */
+    private val ftmsOnly: Boolean get() = !fff1Decoded && ftmsSinceConnect >= FTMS_ONLY_AFTER
+
+    private fun applyTelemetry(t: Telemetry) {
         if (t.status == BeltStatus.RUNNING || t.status == BeltStatus.STARTING) gate.cancel()   // moving again: a disconnect still queued must not keep us away
         tracker.onTelemetry(t, SystemClock.elapsedRealtime())?.let(::persist)
         saveCarry()
@@ -364,13 +384,27 @@ class WalkService : Service() {
         if (destroyed) return
         last = last.copy(ftmsFrames = last.ftmsFrames + 1)
         if (prefs.rawLog) log.append("2acd", bytes)
-        UrevoDriver.decodeFtms(bytes)?.let(merger::onFtms)
+        val r = UrevoDriver.decodeFtms(bytes) ?: return
+        merger.onFtms(r)
+        ftmsSinceConnect++
+        if (ftmsOnly) FtmsOnly.telemetry(r).takeIf { it.status != BeltStatus.UNKNOWN }?.let(::applyTelemetry)
+    }
+
+    private fun handleExtra(label: String, bytes: ByteArray) {
+        if (destroyed) return
+        if (prefs.rawLog) log.append(label, bytes)
+        if (label == "2ada" && ftmsOnly && FtmsOnly.isStopEvent(bytes)) applyTelemetry(Telemetry(BeltStatus.STOPPED, null))
     }
 
     private fun handleConnection(connected: Boolean) {
         if (destroyed) return
         connecting = false
-        if (connected) { tracker.onReconnected(); scanRetries = 0; pendingAddress?.let { prefs.padAddress = it } }   // onDeviceReady: services validated
+        fff1Decoded = false; ftmsSinceConnect = 0
+        if (connected) {                                   // onDeviceReady: services validated
+            tracker.onReconnected(); scanRetries = 0
+            pendingAddress?.let { prefs.padAddress = it }
+            pendingName?.let { prefs.padName = it }
+        }
         last = last.copy(connected = connected)
         if (!connected) {
             merger.reset()

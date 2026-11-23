@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 TechHQ
+// Copyright (C) 2026 Sebiann
 
 package org.underfoot.ble
 
@@ -30,7 +31,7 @@ class PadManager(
     private val onFtms: (ByteArray) -> Unit,
     private val onConnection: (Boolean) -> Unit,
     private val onControlReply: (ByteArray) -> Unit,
-    /** Raw-log only: the pad's other notify streams (FTMS status events, FEE1), kept for protocol mapping. Never decoded. */
+    /** The pad's other notify streams (FTMS status events, FEE1): raw log, plus the FTMS stop event for pads tracked from FTMS alone. */
     private val onExtra: (String, ByteArray) -> Unit = { _, _ -> },
 ) : BleManager(ctx) {
     private var ctrl: BluetoothGattCharacteristic? = null
@@ -64,22 +65,25 @@ class PadManager(
     @Suppress("OVERRIDE_DEPRECATION") // Nordic's replacement API needs a larger rewrite; the callback itself works
     override fun getGattCallback(): BleManagerGattCallback = object : BleManagerGattCallback() {
         override fun isRequiredServiceSupported(gatt: BluetoothGatt): Boolean {
-            val s = gatt.getService(FFF0) ?: return false
-            fff1 = s.getCharacteristic(FFF1); fff2 = s.getCharacteristic(FFF2)
+            // UREVO pads talk on fff1/fff2; other FTMS pads (e.g. Sportstech WalkMate) may not, and are then tracked from FTMS alone.
+            val s = gatt.getService(FFF0)
+            fff1 = s?.getCharacteristic(FFF1); fff2 = s?.getCharacteristic(FFF2)
             ftms = gatt.getService(FTMS)?.getCharacteristic(TREADMILL_DATA)
             ctrl = gatt.getService(FTMS)?.getCharacteristic(CONTROL_POINT)
             ftmsStatus = gatt.getService(FTMS)?.getCharacteristic(FTMS_STATUS)
             fee1 = gatt.getService(FFF_EXTRA)?.getCharacteristic(FEE1)
             controlRequested = false
-            return fff1 != null && fff2 != null
+            return (fff1 != null && fff2 != null) || ftms != null
         }
 
         override fun initialize() {
             // Nordic's request queue runs these in order, so the handshake below is sent only after fff1 is subscribed.
             // The pad's running frame is 25 bytes; the default ATT payload is 20, so ask for a bigger MTU first (nRF Connect does).
             requestMtu(247).fail { _, s -> Log.w(TAG, "MTU request failed: $s") }.enqueue()
-            setNotificationCallback(fff1).with { _, d -> d.value?.let(onFff1) }
-            enableNotifications(fff1).fail { _, s -> Log.w(TAG, "fff1 notifications failed: $s") }.enqueue()
+            fff1?.let { c ->
+                setNotificationCallback(c).with { _, d -> d.value?.let(onFff1) }
+                enableNotifications(c).fail { _, s -> Log.w(TAG, "fff1 notifications failed: $s") }.enqueue()
+            }
             ftms?.let { c ->
                 setNotificationCallback(c).with { _, d -> d.value?.let(onFtms) }
                 if (c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
@@ -99,9 +103,11 @@ class PadManager(
                     enableNotifications(c).fail { _, s -> Log.w(TAG, "$label notifications failed: $s") }.enqueue()
                 }
             }
-            UrevoDriver.handshakeFrames.forEach { frame ->
-                writeCharacteristic(fff2, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
-                    .fail { _, s -> Log.w(TAG, "handshake write failed: $s") }.enqueue()
+            if (fff1 != null) fff2?.let { c ->               // only where the UREVO channel exists; without fff1 nobody would hear the reply
+                UrevoDriver.handshakeFrames.forEach { frame ->
+                    writeCharacteristic(c, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                        .fail { _, s -> Log.w(TAG, "handshake write failed: $s") }.enqueue()
+                }
             }
         }
 

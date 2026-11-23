@@ -8,11 +8,11 @@ android {
     namespace = "org.underfoot"
     compileSdk = 36
     defaultConfig {
-        applicationId = "org.underfoot"
+        applicationId = "moe.sebiann.underfoot"   // separate id so this fork installs next to upstream; namespace and packages stay org.underfoot
         minSdk = 28
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.1.9"
+        versionCode = 11
+        versionName = "0.1.9-walkmate.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
