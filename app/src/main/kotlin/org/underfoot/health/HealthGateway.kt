@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 TechHQ
+// Copyright (C) 2026 Sebiann
 
 package org.underfoot.health
 
@@ -61,10 +62,11 @@ class HealthConnectGateway(private val ctx: Context) : HealthGateway {
             is PauseList.Invalid -> throw IllegalArgumentException(p.reason)   // never as unpaused: that would cover the pauses again
         }
         val plan = HealthPlan.of("underfoot-${org.underfoot.AppPrefs(ctx).installId}-${s.id}", s.startMs, s.endMs, pauses, s.steps, s.distanceM, s.kcal)
+        val maker = if (org.underfoot.AppPrefs(ctx).padName?.startsWith("WALKMATE", ignoreCase = true) == true) "Sportstech" else "UREVO"
         val off = ZoneId.systemDefault().rules.getOffset(Instant.ofEpochMilli(s.startMs))
         fun at(ms: Long) = Instant.ofEpochMilli(ms)
         // Recorded by a device; one stable id per record; the version is constant because sessions are immutable.
-        fun meta(id: String) = Metadata.autoRecorded(Device(type = Device.TYPE_UNKNOWN, manufacturer = "UREVO", model = "Walking pad"), clientRecordId = id, clientRecordVersion = 0L)
+        fun meta(id: String) = Metadata.autoRecorded(Device(type = Device.TYPE_UNKNOWN, manufacturer = maker, model = "Walking pad"), clientRecordId = id, clientRecordVersion = 0L)
         val ses = plan.session
         val records = mutableListOf<Record>(
             ExerciseSessionRecord(

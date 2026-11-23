@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 TechHQ
+// Copyright (C) 2026 Sebiann
 
 package org.underfoot
 
@@ -33,6 +34,9 @@ class AppPrefs(ctx: Context) {
     /** MAC of the paired pad; connect directly when known, scan only when null. */
     var padAddress: String?
         get() = p.getString("pad", null); set(v) = p.edit().putString("pad", v).apply()
+    /** Advertised name of the paired pad (e.g. URTM059, WALKMATE-624); null for a pad paired before this was stored. */
+    var padName: String?
+        get() = p.getString("padname", null); set(v) = p.edit().putString("padname", v).apply()
     /** The pad's counters where the app last ended a walk the pad may still be on, so a restarted service does not save that part twice. */
     var carry: Carry?
         get() = p.getString("carry", null)?.let(Carry::decode); set(v) = p.edit().putString("carry", v?.encode()).apply()
